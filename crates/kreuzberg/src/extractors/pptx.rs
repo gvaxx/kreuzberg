@@ -140,8 +140,22 @@ impl DocumentExtractor for PptxExtractor {
             metadata.pages = Some(page_structure);
         }
 
+        let content = if config.images.as_ref().is_some_and(|i| i.inject_placeholders) {
+            if let Some(ref imgs) = images {
+                if !imgs.is_empty() {
+                    crate::pdf::markdown::inject_image_placeholders(&pptx_result.content, imgs)
+                } else {
+                    pptx_result.content
+                }
+            } else {
+                pptx_result.content
+            }
+        } else {
+            pptx_result.content
+        };
+
         Ok(ExtractionResult {
-            content: pptx_result.content,
+            content,
             mime_type: mime_type.to_string().into(),
             metadata,
             pages: pptx_result.page_contents,
@@ -217,8 +231,22 @@ impl DocumentExtractor for PptxExtractor {
             metadata.pages = Some(page_structure);
         }
 
+        let content = if config.images.as_ref().is_some_and(|i| i.inject_placeholders) {
+            if let Some(ref imgs) = images {
+                if !imgs.is_empty() {
+                    crate::pdf::markdown::inject_image_placeholders(&pptx_result.content, imgs)
+                } else {
+                    pptx_result.content
+                }
+            } else {
+                pptx_result.content
+            }
+        } else {
+            pptx_result.content
+        };
+
         Ok(ExtractionResult {
-            content: pptx_result.content,
+            content,
             mime_type: mime_type.to_string().into(),
             metadata,
             pages: pptx_result.page_contents,

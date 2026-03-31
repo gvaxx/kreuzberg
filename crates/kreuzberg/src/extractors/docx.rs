@@ -858,8 +858,14 @@ impl DocumentExtractor for DocxExtractor {
             .remove(&Cow::Borrowed("language"))
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
+        let content = if config.images.as_ref().is_some_and(|i| i.inject_placeholders) && !extracted_images.is_empty() {
+            crate::pdf::markdown::inject_image_placeholders(&text, &extracted_images)
+        } else {
+            text
+        };
+
         Ok(ExtractionResult {
-            content: text,
+            content,
             mime_type: mime_type.to_string().into(),
             metadata: Metadata {
                 title: meta_title,
