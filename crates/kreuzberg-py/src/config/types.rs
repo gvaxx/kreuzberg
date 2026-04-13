@@ -1396,7 +1396,7 @@ impl PdfConfig {
 
     #[getter]
     fn backend(&self) -> PdfBackend {
-        self.inner.backend.into()
+        self.inner.backend.clone().into()
     }
 
     #[setter]
