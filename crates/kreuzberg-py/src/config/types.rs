@@ -1235,6 +1235,43 @@ impl ImageExtractionConfig {
     }
 }
 
+/// PDF extraction backend selection.
+///
+/// Example:
+///     >>> from kreuzberg import PdfBackend
+///     >>> backend = PdfBackend.Pdfium
+///     >>> assert backend == PdfBackend.Pdfium
+#[pyclass(name = "PdfBackend", module = "kreuzberg", eq, eq_int)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PdfBackend {
+    /// Use pdfium backend (default).
+    Pdfium,
+    /// Use pdf_oxide backend (pure Rust, better table detection for mixed pages).
+    PdfOxide,
+    /// Try pdf_oxide first, fall back to pdfium on failure.
+    Auto,
+}
+
+impl From<PdfBackend> for kreuzberg::PdfBackend {
+    fn from(b: PdfBackend) -> Self {
+        match b {
+            PdfBackend::Pdfium => kreuzberg::PdfBackend::Pdfium,
+            PdfBackend::PdfOxide => kreuzberg::PdfBackend::PdfOxide,
+            PdfBackend::Auto => kreuzberg::PdfBackend::Auto,
+        }
+    }
+}
+
+impl From<kreuzberg::PdfBackend> for PdfBackend {
+    fn from(b: kreuzberg::PdfBackend) -> Self {
+        match b {
+            kreuzberg::PdfBackend::Pdfium => PdfBackend::Pdfium,
+            kreuzberg::PdfBackend::PdfOxide => PdfBackend::PdfOxide,
+            kreuzberg::PdfBackend::Auto => PdfBackend::Auto,
+        }
+    }
+}
+
 /// PDF-specific configuration.
 ///
 /// Example:
@@ -1249,7 +1286,7 @@ pub struct PdfConfig {
 #[pymethods]
 impl PdfConfig {
     #[new]
-    #[pyo3(signature = (extract_images=None, passwords=None, extract_metadata=None, hierarchy=None, extract_annotations=None, top_margin_fraction=None, bottom_margin_fraction=None, allow_single_column_tables=None))]
+    #[pyo3(signature = (extract_images=None, passwords=None, extract_metadata=None, hierarchy=None, extract_annotations=None, top_margin_fraction=None, bottom_margin_fraction=None, allow_single_column_tables=None, backend=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         extract_images: Option<bool>,
@@ -1260,6 +1297,7 @@ impl PdfConfig {
         top_margin_fraction: Option<f32>,
         bottom_margin_fraction: Option<f32>,
         allow_single_column_tables: Option<bool>,
+        backend: Option<PdfBackend>,
     ) -> Self {
         Self {
             inner: kreuzberg::PdfConfig {
@@ -1271,7 +1309,7 @@ impl PdfConfig {
                 top_margin_fraction,
                 bottom_margin_fraction,
                 allow_single_column_tables: allow_single_column_tables.unwrap_or(false),
-                backend: kreuzberg::PdfBackend::default(),
+                backend: backend.map(Into::into).unwrap_or_default(),
             },
         }
     }
@@ -1354,6 +1392,16 @@ impl PdfConfig {
     #[setter]
     fn set_allow_single_column_tables(&mut self, value: bool) {
         self.inner.allow_single_column_tables = value;
+    }
+
+    #[getter]
+    fn backend(&self) -> PdfBackend {
+        self.inner.backend.into()
+    }
+
+    #[setter]
+    fn set_backend(&mut self, value: PdfBackend) {
+        self.inner.backend = value.into();
     }
 
     fn __repr__(&self) -> String {

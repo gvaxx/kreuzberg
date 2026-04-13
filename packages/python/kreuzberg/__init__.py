@@ -66,6 +66,7 @@ from kreuzberg._internal_bindings import (
     LlmConfig,
     OcrConfig,
     PageConfig,
+    PdfBackend,
     PdfConfig,
     PdfPageIterator,
     PostProcessorConfig,

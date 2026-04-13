@@ -115,6 +115,7 @@ __all__ = [
     "ParsingError",
     "PdfAnnotation",
     "PdfAnnotationType",
+    "PdfBackend",
     "PdfConfig",
     "PostProcessorConfig",
     "PostProcessorProtocol",
@@ -1291,6 +1292,24 @@ class ImageExtractionConfig:
         max_dpi: int | None = None,
     ) -> None: ...
 
+class PdfBackend:
+    """PDF extraction backend selection.
+
+    Attributes:
+        Pdfium: Use pdfium backend (default). Mature, battle-tested.
+        PdfOxide: Use pdf_oxide backend (pure Rust). Better table detection
+            for mixed pages (prose + table). Requires pdf-oxide feature.
+        Auto: Try pdf_oxide first, fall back to pdfium on failure.
+
+    Example:
+        >>> from kreuzberg import ExtractionConfig, PdfConfig, PdfBackend
+        >>> config = ExtractionConfig(pdf_options=PdfConfig(backend=PdfBackend.PdfOxide))
+    """
+
+    Pdfium: PdfBackend
+    PdfOxide: PdfBackend
+    Auto: PdfBackend
+
 class PdfConfig:
     """PDF-specific extraction configuration.
 
@@ -1332,6 +1351,7 @@ class PdfConfig:
     top_margin_fraction: float | None
     bottom_margin_fraction: float | None
     allow_single_column_tables: bool
+    backend: PdfBackend
 
     def __init__(
         self,
@@ -1344,6 +1364,7 @@ class PdfConfig:
         top_margin_fraction: float | None = None,
         bottom_margin_fraction: float | None = None,
         allow_single_column_tables: bool | None = None,
+        backend: PdfBackend | None = None,
     ) -> None: ...
 
 class HierarchyConfig:
