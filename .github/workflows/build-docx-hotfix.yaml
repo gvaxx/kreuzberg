@@ -1,0 +1,139 @@
+name: Build DOCX padding hotfix wheel
+'on':
+  push:
+    branches:
+    - fix/docx-table-padding-495
+  workflow_dispatch: {}
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  PDFIUM_VERSION: '7678'
+  PDFIUM_STATIC_VERSION: '7678'
+  ORT_VERSION: 1.24.2
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  CARGO_BUILD_JOBS: '2'
+jobs:
+  python-wheels:
+    name: Build Python wheels (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - label: linux-x86_64
+          os: ubuntu-latest
+          artifact: python-wheels-linux-x86_64
+          rust_target: x86_64-unknown-linux-gnu
+          manylinux: manylinux_2_28
+          python: '3.10'
+          needs_qemu: false
+          extra_args: ''
+    steps:
+    - name: Maximize build disk space
+      if: matrix.os == 'ubuntu-latest'
+      uses: easimon/maximize-build-space@v10
+      with:
+        root-reserve-mb: 2048
+        temp-reserve-mb: 512
+        swap-size-mb: 4096
+        overprovision-lvm: 'true'
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 1
+        submodules: recursive
+    - name: Free up disk space for wheel build
+      if: matrix.os == 'ubuntu-latest'
+      run: scripts/publish/ubuntu/free-disk-space.sh
+    - name: Prepare wheel staging directory
+      shell: bash
+      run: mkdir -p target/wheels
+    - name: Setup Tesseract cache
+      id: tesseract-cache
+      uses: ./.github/actions/setup-tesseract-cache
+      with:
+        label: ${{ matrix.label }}
+        enable-cache: 'true'
+        rust-target: ${{ matrix.rust_target }}
+    - name: Clean previous wheel artifacts
+      shell: bash
+      run: rm -rf target/wheels target/maturin && find packages/python/kreuzberg -name "_internal_bindings.*" ! -name "*.pyi"
+        -delete
+    - name: Build Linux wheels
+      if: runner.os == 'Linux'
+      uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: --release -i python${{ matrix.python }} --out ../../target/wheels ${{ matrix.extra_args }}
+        target: ${{ matrix.rust_target }}
+        manylinux: ${{ matrix.manylinux }}
+        working-directory: packages/python
+        sccache: false
+        docker-options: ${{ steps.tesseract-cache.outputs.docker-options }}
+        before-script-linux: "set -euo pipefail\n# Prevent GCC 14+ from emitting C23-versioned glibc symbols\n# (__isoc23_strtoll\
+          \ etc.) that require glibc \u2265 2.38.\n# This affects manylinux_2_28 on systems like Debian 12 (glibc 2.36), Ubuntu\
+          \ 22.04.\n# We force the compiler to use the C11/C++17 standard at every FFI boundary\n# by setting flags at the\
+          \ compiler, build system, and environment level.\n#\n# Strategy:\n# 1. Set base CFLAGS/CXXFLAGS for direct compilation\n\
+          # 2. Propagate to CMake (respects CMAKE_C_FLAGS, CMAKE_CXX_FLAGS)\n# 3. Set CPPFLAGS for autotools-based deps (e.g.\
+          \ libssl)\nexport CFLAGS=\"-std=gnu11\"\nexport CXXFLAGS=\"-std=gnu++17\"\n# Propagate C23 suppressions to CMake-based\
+          \ build systems (Tesseract/Leptonica/ORT).\nexport CMAKE_C_FLAGS=\"${CFLAGS}\"\nexport CMAKE_CXX_FLAGS=\"${CXXFLAGS}\"\
+          \nrustup component add rust-src || true\n# Install dependencies based on the container distro\nif command -v yum\
+          \ >/dev/null 2>&1; then\n  # CentOS/RHEL (manylinux containers)\n  yum install -y openssl openssl-devel pkgconfig\n\
+          \  export OPENSSL_LIB_DIR=/usr/lib64\n  export OPENSSL_INCLUDE_DIR=/usr/include\nelif command -v apt-get >/dev/null\
+          \ 2>&1; then\n  # Debian/Ubuntu\n  apt-get update && apt-get install -y pkg-config libssl-dev\n  ARCH=$(uname -m)\n\
+          \  if [ \"$ARCH\" = \"aarch64\" ]; then\n    export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu\n  else\n    export\
+          \ OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu\n  fi\n  export OPENSSL_INCLUDE_DIR=/usr/include\nfi\n# Download ORT\
+          \ shared libraries inside the manylinux container so\n# ort-sys links dynamically against them instead of using\
+          \ its\n# bundled download (which may target a newer glibc).\necho \"=== Downloading ORT shared libraries ===\"\n\
+          ARCH=$(uname -m)\nORT_VERSION=\"${{ env.ORT_VERSION }}\"\nif [ \"$ARCH\" = \"aarch64\" ]; then\n  ORT_ARCHIVE=\"\
+          onnxruntime-linux-aarch64-${ORT_VERSION}.tgz\"\nelse\n  ORT_ARCHIVE=\"onnxruntime-linux-x64-${ORT_VERSION}.tgz\"\
+          \nfi\nORT_URL=\"https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}\"\ncurl\
+          \ -fsSL \"${ORT_URL}\" -o /tmp/ort.tgz\ntar -xzf /tmp/ort.tgz -C /tmp\nORT_DIR=$(find /tmp -maxdepth 1 -type d -name\
+          \ \"onnxruntime-linux-*\" | head -n1)\ncp \"${ORT_DIR}\"/lib/libonnxruntime.so* /usr/lib/ 2>/dev/null || true\n\
+          export ORT_LIB_LOCATION=\"${ORT_DIR}/lib\"\nexport ORT_PREFER_DYNAMIC_LINK=1\n"
+    - name: List built wheels
+      shell: bash
+      run: ls -lh target/wheels
+    - name: Verify no C23 glibc symbols in Linux wheels
+      if: runner.os == 'Linux'
+      shell: bash
+      run: "set -euo pipefail\necho \"=== Checking for C23 glibc symbols in wheel binaries ===\"\nfailed=0\n\nfor wheel in\
+        \ target/wheels/*.whl; do\n  echo \"Extracting and checking: $(basename \"$wheel\")\"\n  wheel_dir=$(mktemp -d)\n\
+        \  trap 'rm -rf \"$wheel_dir\" 2>/dev/null || true' EXIT\n  unzip -q \"$wheel\" -d \"$wheel_dir\"\n\n  # Use process\
+        \ substitution to avoid subshell variable scoping issue\n  while IFS= read -r so_file; do\n    [[ -z \"$so_file\"\
+        \ ]] && continue\n    echo \"  Scanning: $(basename \"$so_file\")\"\n    if nm -D \"$so_file\" 2>/dev/null | grep\
+        \ -qE '__isoc23_'; then\n      echo \"    ERROR: Found C23 glibc symbol(s) in $so_file:\"\n      nm -D \"$so_file\"\
+        \ 2>/dev/null | grep '__isoc23_' || true\n      failed=1\n    else\n      echo \"    OK: No C23 glibc symbols found\"\
+        \n    fi\n  done < <(find \"$wheel_dir\" -type f \\( -name \"*.abi3.so\" -o -name \"*.so\" \\) 2>/dev/null || true)\n\
+        \n  rm -rf \"$wheel_dir\" 2>/dev/null || true\n  trap - EXIT\ndone\n\nif [ \"$failed\" -eq 1 ]; then\n  echo \"\"\n\
+        \  echo \"FAILED: Wheel contains C23 glibc symbols incompatible with glibc < 2.38\"\n  echo \"This breaks compatibility\
+        \ with Debian 12, Ubuntu 22.04, and other systems with glibc 2.36.\"\n  exit 1\nfi\necho \"\"\necho \"SUCCESS: All\
+        \ wheels are free of C23 glibc symbols\"\n"
+    - name: Setup Python for smoke test
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+    - name: Smoke test wheel
+      shell: bash
+      run: 'python -m pip install --force-reinstall target/wheels/*.whl
+
+        python scripts/ci/python/test-docx-table-padding.py'
+    - name: Clean up Docker resources (Ubuntu)
+      if: matrix.os == 'ubuntu-latest' && always()
+      run: scripts/publish/ubuntu/docker-prune.sh
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: kreuzberg-4.9.5-docx-padding-linux-x86_64
+        path: target/wheels/*.whl
+        if-no-files-found: error
+        retention-days: 30

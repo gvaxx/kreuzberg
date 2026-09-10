@@ -907,7 +907,7 @@ impl Table {
         let mut col_widths = vec![3usize; num_cols];
         for row in &cells {
             for (i, cell) in row.iter().enumerate() {
-                col_widths[i] = col_widths[i].max(cell.len());
+                col_widths[i] = col_widths[i].max(cell.len().min(120));
             }
         }
 
