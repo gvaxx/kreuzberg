@@ -4,7 +4,7 @@
 /// parser/body_text.rs.
 use super::error::{HwpError, Result};
 use super::model::{ParaText, Paragraph, Section};
-use super::reader::{StreamReader, decompress_stream};
+use super::reader::StreamReader;
 
 // ---------------------------------------------------------------------------
 // HWP file-header signature
@@ -127,13 +127,11 @@ const TAG_PARA_TEXT: u16 = HWPTAG_BEGIN + 65; // 0x51
 // BodyTextParser — parse a single decompressed section into paragraphs
 // ---------------------------------------------------------------------------
 
-/// Parse a raw (possibly compressed) BodyText/SectionN stream.
+/// Parse a decompressed BodyText/SectionN stream.
 ///
 /// Returns the list of sections found. Each section contains zero or more
 /// paragraphs that carry the plain-text content.
-pub fn parse_body_text(data: Vec<u8>, is_compressed: bool) -> Result<Vec<Section>> {
-    let data = if is_compressed { decompress_stream(&data)? } else { data };
-
+pub fn parse_body_text(data: Vec<u8>) -> Result<Vec<Section>> {
     let mut reader = StreamReader::new(data);
     let mut sections: Vec<Section> = Vec::new();
     let mut current_paragraphs: Vec<Paragraph> = Vec::new();
@@ -189,7 +187,9 @@ mod tests {
             return;
         }
         let bytes = std::fs::read(&path).expect("read file");
-        let text = crate::extraction::hwp::extract_hwp_text(&bytes).expect("HWP extraction should succeed");
+        let text =
+            crate::extraction::hwp::extract_hwp_text(&bytes, crate::extraction::hwp::DEFAULT_MAX_DECOMPRESSED_SIZE)
+                .expect("HWP extraction should succeed");
         assert!(text.len() >= 10, "Expected content length >= 10, got {}", text.len());
     }
 

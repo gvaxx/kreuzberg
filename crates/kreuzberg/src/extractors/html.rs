@@ -487,7 +487,7 @@ impl SyncExtractor for HtmlExtractor {
             let inline_images = crate::extraction::html::extract_html_inline_images(&html, image_html_options)?;
 
             for (i, img) in inline_images.into_iter().enumerate() {
-                let (width, height) = img.dimensions.map_or((None, None), |(w, h)| (Some(w), Some(h)));
+                let (width, height) = img.dimensions.map_or((None, None), |d| (Some(d.width), Some(d.height)));
                 let format: Cow<'static, str> = match img.format {
                     InlineImageFormat::Png => Cow::Borrowed("png"),
                     InlineImageFormat::Jpeg => Cow::Borrowed("jpeg"),

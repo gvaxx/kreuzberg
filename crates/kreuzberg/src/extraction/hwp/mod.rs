@@ -7,7 +7,7 @@
 //! # Entry point
 //!
 //! ```ignore
-//! let text = extract_hwp_text(bytes)?;
+//! let text = extract_hwp_text(bytes, DEFAULT_MAX_DECOMPRESSED_SIZE)?;
 //! ```
 
 pub mod error;
@@ -18,15 +18,20 @@ pub mod reader;
 use error::{HwpError, Result};
 use model::HwpDocument;
 use parser::{FileHeader, parse_body_text};
-use reader::CfbReader;
+use reader::{CfbReader, decompress_stream};
+
+/// Default cap on the total decompressed size of all body sections (500 MB),
+/// matching `SecurityLimits::max_archive_size`.
+pub const DEFAULT_MAX_DECOMPRESSED_SIZE: usize = 500 * 1024 * 1024;
 
 /// Extract all plain text from an HWP 5.0 document given its raw bytes.
 ///
 /// # Errors
 ///
 /// Returns `HwpError` if the bytes do not form a valid HWP 5.0 compound file,
-/// if the document is password-encrypted, or if a critical parsing step fails.
-pub fn extract_hwp_text(bytes: &[u8]) -> Result<String> {
+/// if the document is password-encrypted, if a critical parsing step fails,
+/// or if the body sections together exceed `max_decompressed_size` bytes.
+pub fn extract_hwp_text(bytes: &[u8], max_decompressed_size: usize) -> Result<String> {
     let mut cfb = CfbReader::from_bytes(bytes)?;
 
     // Parse the 256-byte file header
@@ -48,6 +53,7 @@ pub fn extract_hwp_text(bytes: &[u8]) -> Result<String> {
 
     let mut doc = HwpDocument::default();
     let mut section_idx = 0u32;
+    let mut remaining_budget = max_decompressed_size;
 
     loop {
         let section_name = format!("{stream_prefix}{section_idx}");
@@ -56,7 +62,16 @@ pub fn extract_hwp_text(bytes: &[u8]) -> Result<String> {
         }
 
         let section_data = cfb.read_stream(&section_name)?;
-        let sections = parse_body_text(section_data, header.is_compressed())?;
+        let section_data = if header.is_compressed() {
+            decompress_stream(&section_data, remaining_budget)?
+        } else {
+            section_data
+        };
+        remaining_budget = remaining_budget.checked_sub(section_data.len()).ok_or_else(|| {
+            HwpError::CompressionError(format!("HWP body sections exceed {max_decompressed_size} byte limit"))
+        })?;
+
+        let sections = parse_body_text(section_data)?;
         doc.sections.extend(sections);
 
         section_idx += 1;

@@ -121,7 +121,7 @@ pub async fn extract_structured(
     let text = response
         .choices
         .first()
-        .and_then(|c| c.message.content.as_deref())
+        .and_then(|c| c.message.content.as_ref().and_then(|content| content.as_text()))
         .ok_or_else(|| {
             crate::KreuzbergError::parsing(format!(
                 "LLM structured extraction returned no content (model={}, {} choices)",

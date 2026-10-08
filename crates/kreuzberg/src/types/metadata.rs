@@ -604,7 +604,7 @@ impl From<html_to_markdown_rs::HtmlMetadata> for HtmlMetadata {
                     src: img.src,
                     alt: img.alt,
                     title: img.title,
-                    dimensions: img.dimensions,
+                    dimensions: img.dimensions.map(|d| (d.width, d.height)),
                     image_type: match img.image_type {
                         html_to_markdown_rs::ImageType::DataUri => ImageType::DataUri,
                         html_to_markdown_rs::ImageType::InlineSvg => ImageType::InlineSvg,

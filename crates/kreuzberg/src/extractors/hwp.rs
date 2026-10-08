@@ -53,8 +53,8 @@ impl Plugin for HwpExtractor {
     }
 }
 
-fn extract_hwp_content(content: &[u8]) -> Result<String> {
-    crate::extraction::hwp::extract_hwp_text(content)
+fn extract_hwp_content(content: &[u8], max_decompressed_size: usize) -> Result<String> {
+    crate::extraction::hwp::extract_hwp_text(content, max_decompressed_size)
         .map_err(|e| crate::KreuzbergError::parsing(format!("Failed to read HWP file: {e}")))
 }
 
@@ -72,6 +72,22 @@ fn build_hwp_internal_document(text: &str) -> InternalDocument {
     builder.build()
 }
 
+/// Decompression cap for HWP body sections, taken from the configured security limits.
+#[cfg(feature = "archives")]
+fn max_decompressed_size(config: &ExtractionConfig) -> usize {
+    config
+        .security_limits
+        .as_ref()
+        .map_or(crate::extraction::hwp::DEFAULT_MAX_DECOMPRESSED_SIZE, |limits| {
+            limits.max_archive_size
+        })
+}
+
+#[cfg(not(feature = "archives"))]
+fn max_decompressed_size(_config: &ExtractionConfig) -> usize {
+    crate::extraction::hwp::DEFAULT_MAX_DECOMPRESSED_SIZE
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl DocumentExtractor for HwpExtractor {
@@ -79,9 +95,9 @@ impl DocumentExtractor for HwpExtractor {
         &self,
         content: &[u8],
         mime_type: &str,
-        _config: &ExtractionConfig,
+        config: &ExtractionConfig,
     ) -> Result<InternalDocument> {
-        let text = extract_hwp_content(content)?;
+        let text = extract_hwp_content(content, max_decompressed_size(config))?;
         let mut doc = build_hwp_internal_document(&text);
         doc.mime_type = std::borrow::Cow::Owned(mime_type.to_string());
         Ok(doc)

@@ -101,25 +101,75 @@ impl StreamReader {
 ///
 /// HWP 5.0 compresses sections with raw deflate (no zlib header). Falls back
 /// to zlib if raw deflate fails, and returns the data as-is if both fail.
-pub fn decompress_stream(data: &[u8]) -> Result<Vec<u8>> {
+///
+/// Output is capped at `max_size` bytes to guard against decompression bombs;
+/// exceeding the cap is an error rather than a silent truncation.
+pub fn decompress_stream(data: &[u8], max_size: usize) -> Result<Vec<u8>> {
     if data.is_empty() {
         return Ok(Vec::new());
     }
 
     // Try raw deflate first (HWP standard)
-    let mut decoder = DeflateDecoder::new(data);
-    let mut decompressed = Vec::new();
-    if decoder.read_to_end(&mut decompressed).is_ok() {
+    if let Some(decompressed) = read_limited(DeflateDecoder::new(data), max_size)? {
         return Ok(decompressed);
     }
 
     // Fall back to zlib
-    let mut decoder = ZlibDecoder::new(data);
-    let mut decompressed = Vec::new();
-    if decoder.read_to_end(&mut decompressed).is_ok() {
+    if let Some(decompressed) = read_limited(ZlibDecoder::new(data), max_size)? {
         return Ok(decompressed);
     }
 
     // Return data unchanged (section may not actually be compressed)
+    if data.len() > max_size {
+        return Err(size_limit_error(max_size));
+    }
     Ok(data.to_vec())
+}
+
+/// Read at most `max_size` bytes from `decoder`.
+///
+/// Returns `Ok(None)` when the stream is not valid for this decoder, and an
+/// error when the decompressed output would exceed `max_size`.
+fn read_limited<R: Read>(decoder: R, max_size: usize) -> Result<Option<Vec<u8>>> {
+    let mut limited = decoder.take(max_size as u64 + 1);
+    let mut decompressed = Vec::new();
+    if limited.read_to_end(&mut decompressed).is_err() {
+        return Ok(None);
+    }
+    if decompressed.len() > max_size {
+        return Err(size_limit_error(max_size));
+    }
+    Ok(Some(decompressed))
+}
+
+fn size_limit_error(max_size: usize) -> HwpError {
+    HwpError::CompressionError(format!("Decompressed HWP section exceeds {max_size} byte limit"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::Compression;
+    use flate2::write::DeflateEncoder;
+    use std::io::Write;
+
+    fn deflate(data: &[u8]) -> Vec<u8> {
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn test_decompress_stream_within_limit() {
+        let compressed = deflate(&[b'a'; 1024]);
+        assert_eq!(decompress_stream(&compressed, 1024).unwrap(), vec![b'a'; 1024]);
+    }
+
+    #[test]
+    fn test_decompress_stream_rejects_bomb() {
+        let compressed = deflate(&vec![0u8; 10 * 1024 * 1024]);
+        assert!(compressed.len() < 64 * 1024);
+        let err = decompress_stream(&compressed, 1024 * 1024).unwrap_err();
+        assert!(matches!(err, HwpError::CompressionError(_)));
+    }
 }
