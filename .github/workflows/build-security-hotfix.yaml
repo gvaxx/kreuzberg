@@ -3,7 +3,12 @@ name: Build security hotfix wheel
   push:
     branches:
     - fix/security-deps-4.9.6
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the wheel to PyPI as kreuzberg-gvaxx
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -141,3 +146,23 @@ jobs:
         path: target/wheels/*.whl
         if-no-files-found: error
         retention-days: 30
+  publish-pypi:
+    name: Publish to PyPI
+    needs: python-wheels
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/kreuzberg-gvaxx/
+    permissions:
+      id-token: write
+    steps:
+    - name: Download wheel artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: kreuzberg-4.9.6-security-linux-x86_64
+        path: dist
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@v1.13.0
+      with:
+        packages-dir: dist

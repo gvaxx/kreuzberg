@@ -3,9 +3,10 @@ build-backend = "maturin"
 requires = [ "maturin>=1,<2" ]
 
 [project]
-name = "kreuzberg"
+name = "kreuzberg-gvaxx"
 version = "4.9.6"
 description = """\
+  Security-patched fork of kreuzberg 4.9 (updated vulnerable Rust dependencies, bounded HWP decompression). \
   High-performance document intelligence library for Python. Extract text, metadata, and structured data from PDFs, \
   Office documents, images, and 88+ formats. Powered by Rust core for 10-50x speed improvements.\
   """
@@ -62,7 +63,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = []
-optional-dependencies.all = [ "kreuzberg[easyocr]", "kreuzberg[tesseract]" ]
+optional-dependencies.all = [ "kreuzberg-gvaxx[easyocr]", "kreuzberg-gvaxx[tesseract]" ]
 optional-dependencies.easyocr = [
   "easyocr>=1.7.2",
   "torch>=2.9.1",
@@ -71,9 +72,9 @@ optional-dependencies.tesseract = []
 urls.Changelog = "https://kreuzberg.dev/CHANGELOG/"
 urls.Documentation = "https://kreuzberg.dev"
 urls.Homepage = "https://kreuzberg.dev"
-urls.Issues = "https://github.com/kreuzberg-dev/kreuzberg/issues"
-urls.Repository = "https://github.com/kreuzberg-dev/kreuzberg"
-urls.Source = "https://github.com/kreuzberg-dev/kreuzberg"
+urls.Issues = "https://github.com/gvaxx/kreuzberg/issues"
+urls.Repository = "https://github.com/gvaxx/kreuzberg"
+urls.Source = "https://github.com/gvaxx/kreuzberg/tree/fix/security-deps-4.9.6"
 scripts.kreuzberg = "kreuzberg.__main__:main"
 
 [tool.maturin]

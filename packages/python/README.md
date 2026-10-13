@@ -1,3 +1,9 @@
+> **kreuzberg-gvaxx** is a security-patched fork of [kreuzberg](https://github.com/kreuzberg-dev/kreuzberg) 4.9,
+> maintained at [gvaxx/kreuzberg](https://github.com/gvaxx/kreuzberg/tree/fix/security-deps-4.9.6). It updates vulnerable
+> Rust dependencies (lopdf, quick-xml, pyo3, openssl, quinn-proto, rmcp) and bounds HWP decompression. Install with
+> `pip install kreuzberg-gvaxx`; the import name is still `import kreuzberg`. Do not install alongside `kreuzberg`.
+> Licensed under the Elastic License 2.0, like the original.
+
 # Python
 
 <div align="center" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 20px 0;">

@@ -34,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
 # ~keep: This must be imported FIRST before any Rust bindings
@@ -191,7 +191,11 @@ if TYPE_CHECKING:
 
     from kreuzberg.ocr.easyocr import EasyOCRBackend  # noqa: F401
 
-__version__ = version("kreuzberg")
+try:
+    __version__ = version("kreuzberg")
+except PackageNotFoundError:
+    # Security-patched fork published on PyPI as kreuzberg-gvaxx.
+    __version__ = version("kreuzberg-gvaxx")
 
 # These types are defined in the .pyi stub for static type checking but are not
 # exported from the compiled Rust bindings at runtime. We define Python-level
