@@ -2,6 +2,8 @@ use super::error::{PdfError, Result};
 use bytes::Bytes;
 use lopdf::Document;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "pdf")]
+use std::io;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfImage {
@@ -26,7 +28,7 @@ pub struct PdfImageExtractor {
 
 /// Decode raw PDF image stream bytes according to PDF filter(s).
 ///
-/// Returns `(decoded_bytes, format_string)`.
+/// Returns `(decoded_bytes, format_string)`, or skips an image that exceeds the decode limit.
 ///
 /// | Filter         | Strategy                                                     | Format      |
 /// |----------------|--------------------------------------------------------------|-------------|
@@ -47,13 +49,13 @@ fn decode_image_data(
     bits_per_component: Option<i64>,
     palette: Option<&[u8]>,
     palette_base_channels: u32,
-) -> (Bytes, String) {
+) -> Option<(Bytes, String)> {
     // Determine the primary filter (last applied is outermost / first to decode).
     // PDF applies filters in array order for encoding, so we decode in reverse.
     // For single-filter images (the common case) this is just filters[0].
     let primary = filters.first().map(String::as_str).unwrap_or("");
 
-    match primary {
+    Some(match primary {
         "DCTDecode" => {
             // Content bytes are already a valid JPEG bitstream.
             (Bytes::from(raw.to_vec()), "jpeg".to_string())
@@ -71,6 +73,14 @@ fn decode_image_data(
                 palette_base_channels,
             ) {
                 Ok(png_bytes) => (Bytes::from(png_bytes), "png".to_string()),
+                Err(error)
+                    if error
+                        .downcast_ref::<io::Error>()
+                        .is_some_and(|e| e.kind() == io::ErrorKind::FileTooLarge) =>
+                {
+                    // Raw images would be decoded again by PDFium, bypassing the limit.
+                    return None;
+                }
                 Err(_) => {
                     // Fall back to raw bytes if decode fails.
                     (Bytes::from(raw.to_vec()), "raw".to_string())
@@ -94,7 +104,7 @@ fn decode_image_data(
             let format = detect_image_format(raw);
             (Bytes::from(raw.to_vec()), format)
         }
-    }
+    })
 }
 
 /// Attempt to detect image format from magic bytes.
@@ -167,13 +177,22 @@ fn decode_flate_to_png(
     let read_limit = pred_row_stride
         .checked_mul(u64::from(h))
         .filter(|&size| size <= MAX_DECODED_IMAGE_BYTES)
-        .ok_or("PDF image dimensions exceed the decompression limit")?;
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "PDF image dimensions exceed the decompression limit",
+            )
+        })?;
 
     let mut decoder = ZlibDecoder::new(raw);
     let mut decompressed = Vec::new();
     (&mut decoder).take(read_limit).read_to_end(&mut decompressed)?;
     if decoder.read(&mut [0])? != 0 {
-        return Err("PDF image stream exceeds the expected decompressed size".into());
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            "PDF image stream exceeds the expected decompressed size",
+        )
+        .into());
     }
 
     let pixel_data = if decompressed.len() as u64 == read_limit {
@@ -204,8 +223,15 @@ fn decode_flate_to_png(
             };
             let expected_len = u64::from(w) * u64::from(h);
             let expanded_len = expected_len * u64::from(base_ch);
-            if pixel_data.len() as u64 != expected_len || expanded_len > MAX_DECODED_IMAGE_BYTES {
-                return Err("Invalid or oversized PDF indexed image buffer".into());
+            if expanded_len > MAX_DECODED_IMAGE_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::FileTooLarge,
+                    "PDF indexed image exceeds the decode limit",
+                )
+                .into());
+            }
+            if pixel_data.len() as u64 != expected_len {
+                return Err("Invalid PDF indexed image buffer".into());
             }
 
             // Expand each index byte to its palette RGB/Gray/CMYK color.
@@ -421,7 +447,7 @@ impl PdfImageExtractor {
                     .unwrap_or((None, 0));
 
                 #[cfg(feature = "pdf")]
-                let (data, decoded_format) = decode_image_data(
+                let Some((data, decoded_format)) = decode_image_data(
                     img.content,
                     &filters,
                     img.color_space.as_deref(),
@@ -430,7 +456,9 @@ impl PdfImageExtractor {
                     img.bits_per_component,
                     palette.as_deref(),
                     palette_base_channels,
-                );
+                ) else {
+                    continue;
+                };
 
                 #[cfg(not(feature = "pdf"))]
                 let (data, decoded_format) = (Bytes::from(img.content.to_vec()), "raw".to_string());
@@ -473,7 +501,7 @@ impl PdfImageExtractor {
                 .unwrap_or((None, 0));
 
             #[cfg(feature = "pdf")]
-            let (data, decoded_format) = decode_image_data(
+            let Some((data, decoded_format)) = decode_image_data(
                 img.content,
                 &filters,
                 img.color_space.as_deref(),
@@ -482,7 +510,9 @@ impl PdfImageExtractor {
                 img.bits_per_component,
                 palette.as_deref(),
                 palette_base_channels,
-            );
+            ) else {
+                continue;
+            };
 
             #[cfg(not(feature = "pdf"))]
             let (data, decoded_format) = (Bytes::from(img.content.to_vec()), "raw".to_string());
@@ -633,7 +663,8 @@ mod tests {
     fn test_decode_dct_passthrough() {
         let jpeg_bytes = b"\xff\xd8\xff\xe0fake_jpeg";
         let filters = vec!["DCTDecode".to_string()];
-        let (data, format) = decode_image_data(jpeg_bytes, &filters, Some("DeviceRGB"), 100, 100, Some(8), None, 0);
+        let (data, format) =
+            decode_image_data(jpeg_bytes, &filters, Some("DeviceRGB"), 100, 100, Some(8), None, 0).unwrap();
         assert_eq!(format, "jpeg");
         assert_eq!(data.as_ref(), jpeg_bytes);
     }
@@ -643,7 +674,8 @@ mod tests {
     fn test_decode_jpx_passthrough() {
         let jpx_bytes = b"\x00\x00\x00\x0cjP  fake_jpx";
         let filters = vec!["JPXDecode".to_string()];
-        let (data, format) = decode_image_data(jpx_bytes, &filters, Some("DeviceRGB"), 10, 10, Some(8), None, 0);
+        let (data, format) =
+            decode_image_data(jpx_bytes, &filters, Some("DeviceRGB"), 10, 10, Some(8), None, 0).unwrap();
         assert_eq!(format, "jpeg2000");
         assert_eq!(data.as_ref(), jpx_bytes);
     }
@@ -653,7 +685,7 @@ mod tests {
     fn test_decode_unknown_filter_passthrough() {
         let raw_bytes = b"\x00\x01\x02\x03";
         let filters = vec!["RunLengthDecode".to_string()];
-        let (data, format) = decode_image_data(raw_bytes, &filters, None, 2, 2, Some(8), None, 0);
+        let (data, format) = decode_image_data(raw_bytes, &filters, None, 2, 2, Some(8), None, 0).unwrap();
         assert_eq!(format, "raw");
         assert_eq!(data.as_ref(), raw_bytes);
     }
@@ -663,7 +695,7 @@ mod tests {
     fn test_decode_no_filter_uses_detection() {
         let jpeg_bytes = b"\xff\xd8\xff\xe0fake";
         let filters: Vec<String> = vec![];
-        let (data, format) = decode_image_data(jpeg_bytes, &filters, None, 10, 10, None, None, 0);
+        let (data, format) = decode_image_data(jpeg_bytes, &filters, None, 10, 10, None, None, 0).unwrap();
         assert_eq!(format, "jpeg");
         assert_eq!(data.as_ref(), jpeg_bytes);
     }
@@ -696,7 +728,8 @@ mod tests {
         let compressed = encoder.finish().unwrap();
 
         let filters = vec!["FlateDecode".to_string()];
-        let (data, format) = decode_image_data(&compressed, &filters, Some("DeviceRGB"), 2, 2, Some(8), None, 0);
+        let (data, format) =
+            decode_image_data(&compressed, &filters, Some("DeviceRGB"), 2, 2, Some(8), None, 0).unwrap();
         assert_eq!(format, "png", "FlateDecode images should be re-encoded as PNG");
         // PNG magic: \x89PNG\r\n\x1a\n
         assert!(
@@ -710,8 +743,8 @@ mod tests {
     #[cfg(feature = "pdf")]
     #[test]
     fn test_decode_flate_rejects_dimensions_over_budget() {
-        let error = decode_flate_to_png(&[], Some("DeviceRGB"), 8000, 8000, Some(8), None, 0).unwrap_err();
-        assert_eq!(error.to_string(), "PDF image dimensions exceed the decompression limit");
+        let filters = ["FlateDecode".to_string()];
+        assert!(decode_image_data(&[], &filters, Some("DeviceRGB"), 8000, 8000, Some(8), None, 0).is_none());
     }
 
     #[cfg(feature = "pdf")]
@@ -737,7 +770,7 @@ mod tests {
 
         let filters = vec!["FlateDecode".to_string()];
         let (data, format) =
-            decode_image_data(&compressed, &filters, Some("Indexed"), 2, 2, Some(8), Some(&palette), 3);
+            decode_image_data(&compressed, &filters, Some("Indexed"), 2, 2, Some(8), Some(&palette), 3).unwrap();
         assert_eq!(format, "png", "Indexed FlateDecode should produce PNG");
         assert!(
             data.starts_with(b"\x89PNG\r\n\x1a\n"),
@@ -760,7 +793,7 @@ mod tests {
         let compressed = encoder.finish().unwrap();
 
         let filters = vec!["FlateDecode".to_string()];
-        let (data, format) = decode_image_data(&compressed, &filters, Some("Indexed"), 2, 2, Some(8), None, 0);
+        let (data, format) = decode_image_data(&compressed, &filters, Some("Indexed"), 2, 2, Some(8), None, 0).unwrap();
         assert_eq!(
             format, "png",
             "Indexed without palette should still produce PNG (grayscale)"
