@@ -44,7 +44,7 @@ pub async fn extract_ooxml_embedded_objects(
     let embedding_names: Vec<String> = (0..archive.len())
         .filter_map(|i| {
             let file = archive.by_index(i).ok()?;
-            let name = file.name().to_string();
+            let name = file.name().ok()?.into_owned();
             if name.starts_with(embeddings_prefix) && name.len() > embeddings_prefix.len() {
                 Some(name)
             } else {

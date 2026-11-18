@@ -94,11 +94,12 @@ impl<R: Read + Seek> PptxContainer<R> {
 
         let mut slide_paths = Vec::new();
         for i in 0..archive.len() {
-            if let Ok(file) = archive.by_index(i) {
-                let name = file.name();
-                if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
-                    slide_paths.push(name.to_string());
-                }
+            if let Ok(file) = archive.by_index(i)
+                && let Ok(name) = file.name()
+                && name.starts_with("ppt/slides/slide")
+                && name.ends_with(".xml")
+            {
+                slide_paths.push(name.into_owned());
             }
         }
 

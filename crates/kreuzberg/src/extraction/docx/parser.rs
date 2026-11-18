@@ -1141,7 +1141,7 @@ fn validate_archive_security(archive: &mut zip::ZipArchive<impl Read + Seek>) ->
         if size > MAX_UNCOMPRESSED_FILE_SIZE {
             return Err(DocxParseError::SecurityLimit(format!(
                 "File '{}' uncompressed size {} bytes exceeds limit of {} bytes",
-                file.name(),
+                file.name().unwrap_or_else(|_| String::from_utf8_lossy(file.name_raw())),
                 size,
                 MAX_UNCOMPRESSED_FILE_SIZE
             )));

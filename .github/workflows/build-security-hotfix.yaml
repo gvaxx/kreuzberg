@@ -78,7 +78,7 @@ jobs:
       uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: --release -i python${{ matrix.python }} --out ../../target/wheels ${{ matrix.extra_args }}
+        args: --release --locked -i python${{ matrix.python }} --out ../../target/wheels ${{ matrix.extra_args }}
         target: ${{ matrix.rust_target }}
         manylinux: ${{ matrix.manylinux }}
         working-directory: packages/python
@@ -135,6 +135,8 @@ jobs:
 
         python scripts/ci/python/test-hwp-extraction.py test_documents/hwp
 
+        python scripts/ci/python/test-pdf-extraction.py test_documents/pdf/embedded_images_tables.pdf
+
         python scripts/ci/python/check-sbom-versions.py target/wheels/*.whl'
     - name: Clean up Docker resources (Ubuntu)
       if: matrix.os == 'ubuntu-latest' && always()
@@ -142,7 +144,7 @@ jobs:
     - name: Upload wheel artifact
       uses: actions/upload-artifact@v7
       with:
-        name: kreuzberg-4.9.6-security-linux-x86_64
+        name: kreuzberg-4.9.6.post1-security-linux-x86_64
         path: target/wheels/*.whl
         if-no-files-found: error
         retention-days: 30
@@ -160,7 +162,7 @@ jobs:
     - name: Download wheel artifact
       uses: actions/download-artifact@v8
       with:
-        name: kreuzberg-4.9.6-security-linux-x86_64
+        name: kreuzberg-4.9.6.post1-security-linux-x86_64
         path: dist
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@v1.13.0

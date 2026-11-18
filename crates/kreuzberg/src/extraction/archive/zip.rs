@@ -49,7 +49,10 @@ pub fn extract_zip_metadata(bytes: &[u8], limits: &SecurityLimits) -> Result<Arc
             .by_index(i)
             .map_err(|e| KreuzbergError::parsing(format!("Failed to read ZIP entry: {}", e)))?;
 
-        let path = file.name().to_string();
+        let path = file
+            .name()
+            .unwrap_or_else(|_| String::from_utf8_lossy(file.name_raw()))
+            .into_owned();
         let size = file.size();
         let is_dir = file.is_dir();
 
@@ -113,7 +116,10 @@ pub fn extract_zip_text_content(bytes: &[u8], limits: &SecurityLimits) -> Result
             .by_index(i)
             .map_err(|e| KreuzbergError::parsing(format!("Failed to read ZIP entry: {}", e)))?;
 
-        let path = file.name().to_string();
+        let path = file
+            .name()
+            .unwrap_or_else(|_| String::from_utf8_lossy(file.name_raw()))
+            .into_owned();
 
         if !file.is_dir() && TEXT_EXTENSIONS.iter().any(|ext| path.to_lowercase().ends_with(ext)) {
             let estimated_size = (file.size() as usize).min(10 * 1024 * 1024);
@@ -172,7 +178,10 @@ pub fn extract_zip_file_bytes(bytes: &[u8], limits: &SecurityLimits) -> Result<A
             continue;
         }
 
-        let path = file.name().to_string();
+        let path = file
+            .name()
+            .unwrap_or_else(|_| String::from_utf8_lossy(file.name_raw()))
+            .into_owned();
         let estimated_size = (file.size() as usize).min(limits.max_archive_size);
         let mut content = Vec::with_capacity(estimated_size);
         if file.read_to_end(&mut content).is_ok() {

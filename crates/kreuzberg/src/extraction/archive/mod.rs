@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use crate::extractors::security::SecurityLimits;
     use ::tar::Builder as TarBuilder;
-    use ::zip::write::{FileOptions, ZipWriter};
+    use ::zip::write::{SimpleFileOptions, ZipWriter};
     use std::io::{Cursor, Write};
 
     fn default_limits() -> SecurityLimits {
@@ -68,7 +68,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("test.txt", options).unwrap();
             zip.write_all(b"Hello, World!").unwrap();
@@ -125,7 +125,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("test.txt", options).unwrap();
             zip.write_all(b"Hello, World!").unwrap();
@@ -194,7 +194,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.add_directory("dir1/", options).unwrap();
             zip.add_directory("dir1/subdir/", options).unwrap();
@@ -310,7 +310,7 @@ mod tests {
         let mut inner_cursor = Cursor::new(Vec::new());
         {
             let mut inner_zip = ZipWriter::new(&mut inner_cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             inner_zip.start_file("inner.txt", options).unwrap();
             inner_zip.write_all(b"Nested content").unwrap();
@@ -322,7 +322,7 @@ mod tests {
         let mut outer_cursor = Cursor::new(Vec::new());
         {
             let mut outer_zip = ZipWriter::new(&mut outer_cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             outer_zip.start_file("archive.zip", options).unwrap();
             outer_zip.write_all(&inner_bytes).unwrap();
@@ -396,7 +396,7 @@ mod tests {
         let mut valid_cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut valid_cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("test.txt", options).unwrap();
             zip.write_all(b"content").unwrap();
@@ -477,7 +477,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("file1.txt", options).unwrap();
             zip.write_all(b"Content 1").unwrap();
@@ -543,7 +543,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.add_directory("root/", options).unwrap();
             zip.add_directory("root/sub1/", options).unwrap();
@@ -578,7 +578,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             let large_content = "x".repeat(10_000);
 
@@ -603,7 +603,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             for i in 0..100 {
                 let filename = format!("file_{}.txt", i);
@@ -631,7 +631,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             let long_path = format!("{}/file.txt", "a".repeat(200));
 
@@ -732,7 +732,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("document.txt", options).unwrap();
             zip.write_all(b"Text file").unwrap();
@@ -843,7 +843,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             for i in 0..5 {
                 let filename = format!("file_{}.txt", i);

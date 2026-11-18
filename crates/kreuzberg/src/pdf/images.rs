@@ -137,10 +137,7 @@ fn decode_flate_to_png(
     use image::ImageEncoder;
     use std::io::Read;
 
-    // Decompress from zlib stream.
-    let mut decoder = ZlibDecoder::new(raw);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
+    const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
     let is_indexed = color_space.map(|cs| cs.contains("Indexed")).unwrap_or(false);
 
@@ -157,23 +154,32 @@ fn decode_flate_to_png(
         }
     };
 
-    let bpc = bits_per_component.unwrap_or(8) as u32;
-    let w = width as u32;
-    let h = height as u32;
+    let bpc = u32::try_from(bits_per_component.unwrap_or(8))?;
+    let w = u32::try_from(width)?;
+    let h = u32::try_from(height)?;
+    if w == 0 || h == 0 || !matches!(bpc, 1 | 2 | 4 | 8 | 16) {
+        return Err("Invalid PDF image dimensions or bits per component".into());
+    }
 
-    // PDF FlateDecode pixel rows may carry a PNG predictor byte (value 2 = Sub,
-    // etc. per PDF spec §7.4.4.4 / PNG predictor). Strip it if row-stride matches.
-    let bytes_per_channel = bpc.div_ceil(8);
-    let raw_row_stride = w * index_channels * bytes_per_channel; // bytes per row without predictor
-    let pred_row_stride = raw_row_stride + 1; // +1 for predictor byte
+    // Account for one possible PNG predictor byte per row.
+    let raw_row_stride = u64::from(w) * u64::from(index_channels * bpc.div_ceil(8));
+    let pred_row_stride = raw_row_stride + 1;
+    let read_limit = pred_row_stride
+        .checked_mul(u64::from(h))
+        .filter(|&size| size <= MAX_DECODED_IMAGE_BYTES)
+        .ok_or("PDF image dimensions exceed the decompression limit")?;
 
-    let pixel_data: Vec<u8> = if h > 0 && decompressed.len() as u32 == pred_row_stride * h {
-        // Strip the predictor byte at the start of each row.
-        let mut pixels = Vec::with_capacity((raw_row_stride * h) as usize);
-        for row in 0..h {
-            let row_start = (row * pred_row_stride) as usize;
-            // Skip the predictor/filter byte (byte 0 of each row).
-            pixels.extend_from_slice(&decompressed[row_start + 1..row_start + pred_row_stride as usize]);
+    let mut decoder = ZlibDecoder::new(raw);
+    let mut decompressed = Vec::new();
+    (&mut decoder).take(read_limit).read_to_end(&mut decompressed)?;
+    if decoder.read(&mut [0])? != 0 {
+        return Err("PDF image stream exceeds the expected decompressed size".into());
+    }
+
+    let pixel_data = if decompressed.len() as u64 == read_limit {
+        let mut pixels = Vec::with_capacity((read_limit - u64::from(h)) as usize);
+        for row in decompressed.chunks_exact(pred_row_stride as usize) {
+            pixels.extend_from_slice(&row[1..]);
         }
         pixels
     } else {
@@ -190,8 +196,20 @@ fn decode_flate_to_png(
                 3 // Default to RGB base
             };
 
+            let color_type = match base_ch {
+                1 => image::ColorType::L8,
+                3 => image::ColorType::Rgb8,
+                4 => image::ColorType::Rgba8,
+                _ => return Err("Unsupported PDF image palette channel count".into()),
+            };
+            let expected_len = u64::from(w) * u64::from(h);
+            let expanded_len = expected_len * u64::from(base_ch);
+            if pixel_data.len() as u64 != expected_len || expanded_len > MAX_DECODED_IMAGE_BYTES {
+                return Err("Invalid or oversized PDF indexed image buffer".into());
+            }
+
             // Expand each index byte to its palette RGB/Gray/CMYK color.
-            let mut expanded = Vec::with_capacity(pixel_data.len() * base_ch as usize);
+            let mut expanded = Vec::with_capacity(expanded_len as usize);
             for &idx in &pixel_data {
                 let offset = idx as usize * base_ch as usize;
                 if offset + base_ch as usize <= palette_data.len() {
@@ -200,23 +218,6 @@ fn decode_flate_to_png(
                     // Out-of-range index: fill with zeros (black).
                     expanded.extend(std::iter::repeat_n(0u8, base_ch as usize));
                 }
-            }
-
-            let color_type = match base_ch {
-                1 => image::ColorType::L8,
-                3 => image::ColorType::Rgb8,
-                4 => image::ColorType::Rgba8,
-                _ => image::ColorType::Rgb8,
-            };
-
-            let expected_len = (w * h * base_ch) as usize;
-            if expanded.len() != expected_len {
-                return Err(format!(
-                    "PDF indexed image buffer length mismatch after palette expansion: \
-                     expected {expected_len} bytes ({w}x{h} px, {base_ch} ch) but got {} bytes",
-                    expanded.len()
-                )
-                .into());
             }
 
             let mut png_bytes: Vec<u8> = Vec::new();
@@ -264,8 +265,9 @@ fn decode_flate_to_png(
     // Validate buffer length before encoding to prevent a panic inside the image
     // crate, which asserts `data.len() == width * height * channels * bytes_per_channel`.
     // Malformed PDF image streams can produce buffers that violate this (bug #552).
-    let expected_len = (w * h * channels * bytes_per_channel) as usize;
-    if pixel_data.len() != expected_len {
+    let expected_len = (raw_row_stride * u64::from(h)) as usize;
+    let png_len = u64::from(w) * u64::from(h) * u64::from(color_type.bytes_per_pixel());
+    if pixel_data.len() != expected_len || pixel_data.len() as u64 != png_len {
         return Err(format!(
             "PDF image buffer length mismatch: expected {expected_len} bytes \
              ({w}x{h} px, {channels} ch) but got {} bytes — skipping malformed image",
@@ -703,6 +705,13 @@ mod tests {
             data.len(),
             &data[..data.len().min(8)]
         );
+    }
+
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn test_decode_flate_rejects_dimensions_over_budget() {
+        let error = decode_flate_to_png(&[], Some("DeviceRGB"), 8000, 8000, Some(8), None, 0).unwrap_err();
+        assert_eq!(error.to_string(), "PDF image dimensions exceed the decompression limit");
     }
 
     #[cfg(feature = "pdf")]

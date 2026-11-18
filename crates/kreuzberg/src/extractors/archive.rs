@@ -586,7 +586,7 @@ mod tests {
     use super::*;
     use std::io::{Cursor, Write};
     use tar::Builder as TarBuilder;
-    use zip::write::{FileOptions, ZipWriter};
+    use zip::write::{SimpleFileOptions, ZipWriter};
 
     #[tokio::test]
     async fn test_zip_extractor() {
@@ -595,7 +595,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            let options = FileOptions::<'_, ()>::default();
+            let options = SimpleFileOptions::default();
 
             zip.start_file("test.txt", options).unwrap();
             zip.write_all(b"Hello, World!").unwrap();

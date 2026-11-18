@@ -173,7 +173,7 @@ fn pre_extract_images(archive: &mut zip::ZipArchive<Cursor<Vec<u8>>>) -> AHashMa
 
     let mut images = AHashMap::new();
     let names: Vec<String> = (0..archive.len())
-        .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| Some(archive.by_index(i).ok()?.name().ok()?.into_owned()))
         .collect();
 
     for name in names {
@@ -210,7 +210,7 @@ fn pre_extract_formulas(archive: &mut zip::ZipArchive<Cursor<Vec<u8>>>) -> AHash
 
     let mut formulas = AHashMap::new();
     let names: Vec<String> = (0..archive.len())
-        .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| Some(archive.by_index(i).ok()?.name().ok()?.into_owned()))
         .collect();
 
     for name in &names {

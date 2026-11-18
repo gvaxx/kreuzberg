@@ -4,9 +4,9 @@ requires = [ "maturin>=1,<2" ]
 
 [project]
 name = "kreuzberg-gvaxx"
-version = "4.9.6"
+version = "4.9.6.post1"
 description = """\
-  Security-patched fork of kreuzberg 4.9 (updated vulnerable Rust dependencies, bounded HWP decompression). \
+  Security-patched fork of kreuzberg 4.9 (updated Rust dependencies, hardened PDFium loading, bounded HWP and PDF image decompression). \
   High-performance document intelligence library for Python. Extract text, metadata, and structured data from PDFs, \
   Office documents, images, and 88+ formats. Powered by Rust core for 10-50x speed improvements.\
   """

@@ -885,7 +885,7 @@ mod build_tesseract {
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).unwrap();
-            let file_path = file.mangled_name();
+            let file_path = file.mangled_name().expect("Invalid filename in dependency archive");
             let file_path = file_path.to_str().unwrap();
 
             let path = Path::new(file_path);
