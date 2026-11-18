@@ -84,27 +84,55 @@ jobs:
         working-directory: packages/python
         sccache: false
         docker-options: ${{ steps.tesseract-cache.outputs.docker-options }}
-        before-script-linux: "set -euo pipefail\n# Prevent GCC 14+ from emitting C23-versioned glibc symbols\n# (__isoc23_strtoll\
-          \ etc.) that require glibc \u2265 2.38.\n# This affects manylinux_2_28 on systems like Debian 12 (glibc 2.36), Ubuntu\
-          \ 22.04.\n# We force the compiler to use the C11/C++17 standard at every FFI boundary\n# by setting flags at the\
-          \ compiler, build system, and environment level.\n#\n# Strategy:\n# 1. Set base CFLAGS/CXXFLAGS for direct compilation\n\
-          # 2. Propagate to CMake (respects CMAKE_C_FLAGS, CMAKE_CXX_FLAGS)\n# 3. Set CPPFLAGS for autotools-based deps (e.g.\
-          \ libssl)\nexport CFLAGS=\"-std=gnu11\"\nexport CXXFLAGS=\"-std=gnu++17\"\n# Propagate C23 suppressions to CMake-based\
-          \ build systems (Tesseract/Leptonica/ORT).\nexport CMAKE_C_FLAGS=\"${CFLAGS}\"\nexport CMAKE_CXX_FLAGS=\"${CXXFLAGS}\"\
-          \nrustup component add rust-src || true\n# Install dependencies based on the container distro\nif command -v yum\
-          \ >/dev/null 2>&1; then\n  # CentOS/RHEL (manylinux containers)\n  yum install -y openssl openssl-devel pkgconfig\n\
-          \  export OPENSSL_LIB_DIR=/usr/lib64\n  export OPENSSL_INCLUDE_DIR=/usr/include\nelif command -v apt-get >/dev/null\
-          \ 2>&1; then\n  # Debian/Ubuntu\n  apt-get update && apt-get install -y pkg-config libssl-dev\n  ARCH=$(uname -m)\n\
-          \  if [ \"$ARCH\" = \"aarch64\" ]; then\n    export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu\n  else\n    export\
-          \ OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu\n  fi\n  export OPENSSL_INCLUDE_DIR=/usr/include\nfi\n# Download ORT\
-          \ shared libraries inside the manylinux container so\n# ort-sys links dynamically against them instead of using\
-          \ its\n# bundled download (which may target a newer glibc).\necho \"=== Downloading ORT shared libraries ===\"\n\
-          ARCH=$(uname -m)\nORT_VERSION=\"${{ env.ORT_VERSION }}\"\nif [ \"$ARCH\" = \"aarch64\" ]; then\n  ORT_ARCHIVE=\"\
-          onnxruntime-linux-aarch64-${ORT_VERSION}.tgz\"\nelse\n  ORT_ARCHIVE=\"onnxruntime-linux-x64-${ORT_VERSION}.tgz\"\
-          \nfi\nORT_URL=\"https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE}\"\ncurl\
-          \ -fsSL \"${ORT_URL}\" -o /tmp/ort.tgz\ntar -xzf /tmp/ort.tgz -C /tmp\nORT_DIR=$(find /tmp -maxdepth 1 -type d -name\
-          \ \"onnxruntime-linux-*\" | head -n1)\ncp \"${ORT_DIR}\"/lib/libonnxruntime.so* /usr/lib/ 2>/dev/null || true\n\
-          export ORT_LIB_LOCATION=\"${ORT_DIR}/lib\"\nexport ORT_PREFER_DYNAMIC_LINK=1\n"
+        before-script-linux: |
+          set -euo pipefail
+          # Prevent GCC 14+ from emitting C23-versioned glibc symbols
+          # (__isoc23_strtoll etc.) that require glibc ≥ 2.38.
+          # This affects manylinux_2_28 on systems like Debian 12 (glibc 2.36), Ubuntu 22.04.
+          # We force the compiler to use the C11/C++17 standard at every FFI boundary
+          # by setting flags at the compiler, build system, and environment level.
+          #
+          # Strategy:
+          # 1. Set base CFLAGS/CXXFLAGS for direct compilation
+          # 2. Propagate to CMake (respects CMAKE_C_FLAGS, CMAKE_CXX_FLAGS)
+          # 3. Set CPPFLAGS for autotools-based deps (e.g. libssl)
+          export CFLAGS="-std=gnu11"
+          export CXXFLAGS="-std=gnu++17"
+          # Propagate C23 suppressions to CMake-based build systems (Tesseract/Leptonica/ORT).
+          export CMAKE_C_FLAGS="${CFLAGS}"
+          export CMAKE_CXX_FLAGS="${CXXFLAGS}"
+          rustup component add rust-src || true
+          # Install dependencies based on the container distro
+          if command -v yum >/dev/null 2>&1; then
+            # CentOS/RHEL (manylinux containers)
+            yum install -y openssl openssl-devel pkgconfig
+            export OPENSSL_LIB_DIR=/usr/lib64
+            export OPENSSL_INCLUDE_DIR=/usr/include
+          elif command -v apt-get >/dev/null 2>&1; then
+            # Debian/Ubuntu
+            apt-get update && apt-get install -y pkg-config libssl-dev
+            ARCH=$(uname -m)
+            if [ "$ARCH" = "aarch64" ]; then
+              export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
+            else
+              export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+            fi
+            export OPENSSL_INCLUDE_DIR=/usr/include
+          fi
+          # Use the official manylinux x86_64 wheel for the version of ORT required
+          # by ort-sys. Only the shared library is used. The Python ABI is irrelevant.
+          ORT_VERSION="${{ env.ORT_VERSION }}"
+          ORT_WHEEL_URL="https://files.pythonhosted.org/packages/2c/32/4e5921ba8b82ac37cad45f1108ca6effd430f49c7f20577d53f317d166ed/onnxruntime-${ORT_VERSION}-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          ORT_WHEEL_SHA256="93fe190ee555ae8e9c1214bcfcf13af85cd06dd835e8d835ce5a8d01056844fe"
+          ORT_DIR=$(mktemp -d)
+          curl --retry 3 -fsSL "$ORT_WHEEL_URL" -o "$ORT_DIR/onnxruntime.whl"
+          echo "$ORT_WHEEL_SHA256  $ORT_DIR/onnxruntime.whl" | sha256sum -c -
+          ORT_LIB="libonnxruntime.so.${ORT_VERSION}"
+          /opt/python/cp310-cp310/bin/python -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("onnxruntime/capi/" + sys.argv[2]))' "$ORT_DIR/onnxruntime.whl" "$ORT_LIB" > "/usr/lib/$ORT_LIB"
+          ln -sf "$ORT_LIB" /usr/lib/libonnxruntime.so.1
+          ln -sf "$ORT_LIB" /usr/lib/libonnxruntime.so
+          export ORT_LIB_LOCATION=/usr/lib
+          export ORT_PREFER_DYNAMIC_LINK=1
     - name: List built wheels
       shell: bash
       run: ls -lh target/wheels
