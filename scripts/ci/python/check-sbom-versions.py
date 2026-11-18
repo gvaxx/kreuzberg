@@ -11,8 +11,6 @@ MIN_VERSIONS = {
     'openssl': (0, 10, 80),  # GHSA-phqj-4mhp-q6mq, GHSA-xp3w-r5p5-63rr, GHSA-xv59-967r-8726
     'quinn-proto': (0, 11, 15),  # GHSA-4w2j-m93h-cj5j
     'zip': (9, 0, 1),  # RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369
-    'rustls': (0, 23, 46),  # RUSTSEC-2026-0346 through RUSTSEC-2026-0349
-    'opentelemetry_sdk': (0, 33, 1),
     'rmcp': (2, 1, 0),  # GHSA-33f5-2c5q-wgwj, GHSA-9g45-5xwm-f3wc, GHSA-9pj6-vhgr-3mwh
 }
 
